@@ -106,18 +106,24 @@ export const submitAssessment = async (req: AuthRequest, res: Response) => {
                 if (question.type === 'descriptive') {
                     needsManualGrading = true;
                 } else if (question.type === 'multiple_choice') {
-                    // Array comparison (order independent)
+                    // Array comparison (order independent, unique values, string normalization)
                     const studentAns = Array.isArray(ans.answer) ? ans.answer : [ans.answer];
                     const correctAns = Array.isArray(question.correctAnswer) ? question.correctAnswer : [question.correctAnswer];
 
-                    if (studentAns.length === correctAns.length &&
-                        studentAns.every((val: string) => correctAns.includes(val))) {
+                    const studentAnsSet = new Set<string>(studentAns.map((v: any) => String(v)));
+                    const correctAnsSet = new Set<string>(correctAns.map((v: any) => String(v)));
+
+                    if (studentAnsSet.size === correctAnsSet.size &&
+                        [...studentAnsSet].every(val => correctAnsSet.has(val))) {
                         marks = question.points;
                         obtainedMarks += marks;
                     }
                 } else {
-                    // Simple equality check for single_choice and true_false
-                    if (JSON.stringify(ans.answer) === JSON.stringify(question.correctAnswer)) {
+                    // Simple equality check with string normalization
+                    const studentAns = String(ans.answer);
+                    const correctAns = String(question.correctAnswer);
+
+                    if (studentAns === correctAns) {
                         marks = question.points;
                         obtainedMarks += marks;
                     }
