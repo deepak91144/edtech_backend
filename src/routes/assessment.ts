@@ -3,6 +3,8 @@ import express from 'express';
 import {
     createAssessment,
     getAssessments,
+    getTeacherAssessments,
+    updateAssessment,
     getAssessmentById,
     submitAssessment,
     getSubmissions,
@@ -16,6 +18,8 @@ const router = express.Router();
 
 // Teacher routes
 router.post('/', authorize(['teacher']), createAssessment);
+router.get('/teacher/my-assessments', authorize(['teacher']), getTeacherAssessments);
+router.put('/:id', authorize(['teacher']), updateAssessment);
 router.get('/class/:classId', getAssessments); // Both can access, filtered in controller
 router.get('/:id/submissions', authorize(['teacher']), getSubmissions);
 router.put('/submission/:submissionId/grade', authorize(['teacher']), gradeSubmission);

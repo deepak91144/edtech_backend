@@ -7,7 +7,7 @@ import { AuthRequest } from '../middleware/auth';
 // Create a new assessment
 export const createAssessment = async (req: AuthRequest, res: Response) => {
     try {
-        const { title, description, classId, questions, dueDate, status } = req.body;
+        const { title, description, classId, subjectId, questions, dueDate, status } = req.body;
         const teacherId = req.user?.id;
 
         // Verify class ownership
@@ -24,17 +24,25 @@ export const createAssessment = async (req: AuthRequest, res: Response) => {
             title,
             description,
             classId,
+            subjectId,
             teacherId,
-            questions,
+            questions: questions || [],
             dueDate,
             status
         });
 
         await assessment.save();
         res.status(201).json({ message: 'Assessment created successfully', assessment });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Create assessment error:', error);
-        res.status(500).json({ message: 'Error creating assessment' });
+
+        // Return validation errors if available
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map((err: any) => err.message);
+            return res.status(400).json({ message: messages.join(', ') });
+        }
+
+        res.status(500).json({ message: error.message || 'Error creating assessment' });
     }
 };
 
@@ -56,6 +64,85 @@ export const getAssessments = async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('Get assessments error:', error);
         res.status(500).json({ message: 'Error fetching assessments' });
+    }
+};
+
+// Get all assessments created by the teacher
+export const getTeacherAssessments = async (req: AuthRequest, res: Response) => {
+    try {
+        const teacherId = req.user?.id;
+
+        const assessments = await Assessment.find({ teacherId })
+            .populate('classId', 'name')
+            .populate('subjectId', 'name')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ assessments });
+    } catch (error) {
+        console.error('Get teacher assessments error:', error);
+        res.status(500).json({ message: 'Error fetching assessments' });
+    }
+};
+
+// Update an assessment (only for draft assessments)
+export const updateAssessment = async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const teacherId = req.user?.id;
+        const updates = req.body;
+
+        // Find the assessment
+        const assessment = await Assessment.findById(id);
+
+        if (!assessment) {
+            return res.status(404).json({ message: 'Assessment not found' });
+        }
+
+        // Check if teacher owns this assessment
+        if (assessment.teacherId.toString() !== teacherId) {
+            return res.status(403).json({ message: 'Unauthorized to update this assessment' });
+        }
+
+        // Allow publishing (changing status from draft to published)
+        const isPublishing = updates.status === 'published' && assessment.status === 'draft';
+
+        // If already published, don't allow any updates
+        if (assessment.status === 'published' && !isPublishing) {
+            return res.status(403).json({ message: 'Cannot update published assessments' });
+        }
+
+        // If publishing, validate that there are questions
+        const questionsToValidate = updates.questions !== undefined ? updates.questions : assessment.questions;
+        if (isPublishing && (!questionsToValidate || questionsToValidate.length === 0)) {
+            return res.status(400).json({ message: 'Cannot publish assessment without questions' });
+        }
+
+        // Update the assessment
+        // Explicitly handle questions array to prevent merging issues
+        if (updates.questions !== undefined) {
+            assessment.questions = updates.questions;
+        }
+
+        // Update other fields
+        if (updates.title !== undefined) assessment.title = updates.title;
+        if (updates.description !== undefined) assessment.description = updates.description;
+        if (updates.classId !== undefined) assessment.classId = updates.classId;
+        if (updates.subjectId !== undefined) assessment.subjectId = updates.subjectId;
+        if (updates.dueDate !== undefined) assessment.dueDate = updates.dueDate;
+        if (updates.status !== undefined) assessment.status = updates.status;
+
+        await assessment.save();
+
+        res.status(200).json({ message: 'Assessment updated successfully', assessment });
+    } catch (error: any) {
+        console.error('Update assessment error:', error);
+
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map((err: any) => err.message);
+            return res.status(400).json({ message: messages.join(', ') });
+        }
+
+        res.status(500).json({ message: error.message || 'Error updating assessment' });
     }
 };
 
@@ -92,6 +179,11 @@ export const submitAssessment = async (req: AuthRequest, res: Response) => {
         const assessment = await Assessment.findById(id);
         if (!assessment) {
             return res.status(404).json({ message: 'Assessment not found' });
+        }
+
+        // Check if due date has passed
+        if (assessment.dueDate && new Date(assessment.dueDate) < new Date()) {
+            return res.status(403).json({ message: 'The deadline for this assessment has passed. Submissions are no longer accepted.' });
         }
 
         // Auto-grade objective questions
@@ -140,12 +232,16 @@ export const submitAssessment = async (req: AuthRequest, res: Response) => {
             assessmentId: id,
             studentId,
             answers: processedAnswers,
-            obtainedMarks: needsManualGrading ? 0 : obtainedMarks, // If manual grading needed, set 0 initially or handle differently
+            obtainedMarks: needsManualGrading ? 0 : obtainedMarks,
             status: needsManualGrading ? 'submitted' : 'graded'
         });
 
         await submission.save();
-        res.status(201).json({ message: 'Assessment submitted successfully', submission });
+        res.status(201).json({
+            message: 'Assessment submitted successfully',
+            submission,
+            autoGraded: !needsManualGrading
+        });
     } catch (error) {
         console.error('Submit assessment error:', error);
         res.status(500).json({ message: 'Error submitting assessment' });
@@ -229,7 +325,9 @@ export const getMySubmission = async (req: AuthRequest, res: Response) => {
 export const getAllMySubmissions = async (req: AuthRequest, res: Response) => {
     try {
         const studentId = req.user?.id;
-        const submissions = await Submission.find({ studentId });
+        const submissions = await Submission.find({ studentId })
+            .populate('assessmentId', 'title questions')
+            .sort({ submittedAt: -1 });
         res.status(200).json({ submissions });
     } catch (error) {
         console.error('Get all my submissions error:', error);

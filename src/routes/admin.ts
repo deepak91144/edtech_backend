@@ -16,7 +16,7 @@ router.get('/organizations', async (req: AuthRequest, res: Response): Promise<vo
     try {
         let query = {};
         if (req.user?.role === 'org_admin') {
-            query = { _id: req.user.organizationId };
+            query = { adminId: req.user.id };
         }
 
         const organizations = await Organization.find(query)
@@ -87,10 +87,7 @@ router.get('/organizations/:id', async (req: AuthRequest, res: Response): Promis
 router.post('/organizations',
     [
         body('name').notEmpty().withMessage('Organization name is required'),
-        body('type').isIn(['school', 'college', 'university']).withMessage('Valid organization type is required'),
-        body('adminName').notEmpty().withMessage('Admin name is required'),
-        body('adminEmail').isEmail().withMessage('Valid admin email is required'),
-        body('adminPassword').isLength({ min: 6 }).withMessage('Admin password must be at least 6 characters')
+        body('type').isIn(['school', 'college', 'university']).withMessage('Valid organization type is required')
     ],
     async (req: AuthRequest, res: Response): Promise<void> => {
         try {
@@ -100,39 +97,30 @@ router.post('/organizations',
                 return;
             }
 
-            const { name, type, adminName, adminEmail, adminPassword } = req.body;
+            const { name, description, photo, address, type } = req.body;
 
-            // Check if user already exists
-            const existingUser = await User.findOne({ email: adminEmail });
-            if (existingUser) {
-                res.status(400).json({ message: 'User with this email already exists' });
+            // The current logged-in user will be the organization admin
+            if (!req.user?.id) {
+                res.status(401).json({ message: 'User not authenticated' });
                 return;
             }
 
-            // 1. Create Organization (temporarily with current admin's ID or a placeholder)
-            // We need a valid ID for the user creation, so we create org first
+            // Create Organization with the current user as admin
             const organization = new Organization({
                 name,
+                description,
+                photo,
+                address,
                 type,
-                adminId: req.user!.id // Temporary, will update later
+                adminId: req.user.id
             });
 
             await organization.save();
 
-            // 2. Create Organization Admin User
-            const orgAdmin = new User({
-                email: adminEmail,
-                password: adminPassword,
-                name: adminName,
-                role: 'org_admin',
+            // Update the user's organizationId
+            await User.findByIdAndUpdate(req.user.id, {
                 organizationId: organization._id
             });
-
-            await orgAdmin.save();
-
-            // 3. Update Organization with the new admin's ID
-            organization.adminId = orgAdmin._id as any;
-            await organization.save();
 
             res.status(201).json({
                 success: true,
@@ -160,10 +148,13 @@ router.put('/organizations/:id',
                 return;
             }
 
-            const { name, type } = req.body;
+            const { name, description, photo, address, type } = req.body;
             const updateData: any = {};
 
             if (name) updateData.name = name;
+            if (description !== undefined) updateData.description = description;
+            if (photo !== undefined) updateData.photo = photo;
+            if (address !== undefined) updateData.address = address;
             if (type) updateData.type = type;
             updateData.updatedAt = new Date();
 
@@ -261,6 +252,181 @@ router.get('/stats', async (req: AuthRequest, res: Response): Promise<void> => {
         });
     } catch (error) {
         console.error('Get stats error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get all students from all organizations (for org_admin, only their orgs)
+router.get('/students', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        let organizationIds: any[] = [];
+
+        if (req.user?.role === 'org_admin') {
+            // Get all organizations owned by this org_admin
+            const organizations = await Organization.find({ adminId: req.user.id }).select('_id');
+            organizationIds = organizations.map(org => org._id);
+        } else if (req.user?.role === 'admin') {
+            // Platform admin can see all students
+            const organizations = await Organization.find().select('_id');
+            organizationIds = organizations.map(org => org._id);
+        }
+
+        if (organizationIds.length === 0) {
+            res.json({
+                success: true,
+                count: 0,
+                students: []
+            });
+            return;
+        }
+
+        const students = await User.find({
+            organizationId: { $in: organizationIds },
+            role: 'student'
+        })
+            .select('-password')
+            .populate('organizationId', 'name type')
+            .sort({ createdAt: -1 });
+
+        // Fetch all classes for these organizations to add class information
+        const classes = await Class.find({ organizationId: { $in: organizationIds } });
+
+        // Add class information to students
+        const studentsWithClasses = students.map(student => {
+            const studentObj: any = student.toObject();
+
+            // Find classes that include this student
+            const studentClasses = classes.filter(cls =>
+                cls.studentIds.some(studentId => studentId.toString() === student._id.toString())
+            );
+
+            studentObj.classes = studentClasses.map(cls => ({
+                _id: cls._id,
+                name: cls.name
+            }));
+
+            return studentObj;
+        });
+
+        res.json({
+            success: true,
+            count: studentsWithClasses.length,
+            students: studentsWithClasses
+        });
+    } catch (error) {
+        console.error('Get students error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get all teachers from all organizations (for org_admin, only their orgs)
+router.get('/teachers', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        let organizationIds: any[] = [];
+
+        if (req.user?.role === 'org_admin') {
+            // Get all organizations owned by this org_admin
+            const organizations = await Organization.find({ adminId: req.user.id }).select('_id');
+            organizationIds = organizations.map(org => org._id);
+        } else if (req.user?.role === 'admin') {
+            // Platform admin can see all teachers
+            const organizations = await Organization.find().select('_id');
+            organizationIds = organizations.map(org => org._id);
+        }
+
+        if (organizationIds.length === 0) {
+            res.json({
+                success: true,
+                count: 0,
+                teachers: []
+            });
+            return;
+        }
+
+        const teachers = await User.find({
+            organizationId: { $in: organizationIds },
+            role: 'teacher'
+        })
+            .select('-password')
+            .populate('organizationId', 'name type')
+            .sort({ createdAt: -1 });
+
+        // Fetch all classes for these organizations to add class information
+        const classes = await Class.find({ organizationId: { $in: organizationIds } });
+
+        // Add class information to teachers
+        const teachersWithClasses = teachers.map(teacher => {
+            const teacherObj: any = teacher.toObject();
+
+            // Find classes that include this teacher
+            const teacherClasses = classes.filter(cls =>
+                cls.teacherIds.some(teacherId => teacherId.toString() === teacher._id.toString())
+            );
+
+            teacherObj.classes = teacherClasses.map(cls => ({
+                _id: cls._id,
+                name: cls.name
+            }));
+
+            return teacherObj;
+        });
+
+        res.json({
+            success: true,
+            count: teachersWithClasses.length,
+            teachers: teachersWithClasses
+        });
+    } catch (error) {
+        console.error('Get teachers error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get all classes from all organizations (for org_admin, only their orgs)
+router.get('/classes', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        let organizationIds: any[] = [];
+
+        if (req.user?.role === 'org_admin') {
+            // Get all organizations owned by this org_admin
+            const organizations = await Organization.find({ adminId: req.user.id }).select('_id');
+            organizationIds = organizations.map(org => org._id);
+        } else if (req.user?.role === 'admin') {
+            // Platform admin can see all classes
+            const organizations = await Organization.find().select('_id');
+            organizationIds = organizations.map(org => org._id);
+        }
+
+        if (organizationIds.length === 0) {
+            res.json({
+                success: true,
+                count: 0,
+                classes: []
+            });
+            return;
+        }
+
+        const classes = await Class.find({
+            organizationId: { $in: organizationIds }
+        })
+            .populate('organizationId', 'name type')
+            .sort({ createdAt: -1 });
+
+        // Add counts for teachers and students
+        const classesWithCounts = classes.map(cls => {
+            const classObj: any = cls.toObject();
+            classObj.teacherCount = cls.teacherIds?.length || 0;
+            classObj.studentCount = cls.studentIds?.length || 0;
+            return classObj;
+        });
+
+        res.json({
+            success: true,
+            count: classesWithCounts.length,
+            classes: classesWithCounts
+        });
+    } catch (error) {
+        console.error('Get classes error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });

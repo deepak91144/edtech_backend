@@ -2,6 +2,9 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IOrganization extends Document {
     name: string;
+    description?: string;
+    photo?: string;
+    address?: string;
     type: 'school' | 'college' | 'university';
     adminId: mongoose.Types.ObjectId;
     createdAt: Date;
@@ -12,6 +15,18 @@ const organizationSchema = new Schema<IOrganization>({
     name: {
         type: String,
         required: [true, 'Organization name is required'],
+        trim: true
+    },
+    description: {
+        type: String,
+        trim: true
+    },
+    photo: {
+        type: String,
+        trim: true
+    },
+    address: {
+        type: String,
         trim: true
     },
     type: {

@@ -4,9 +4,12 @@ export interface IAnnouncement extends Document {
     title: string;
     content: string;
     link?: string;
+    severity: 'info' | 'warning' | 'urgent';
+    targetAudience: 'students' | 'teachers' | 'both';
     authorId: mongoose.Types.ObjectId;
     organizationId: mongoose.Types.ObjectId;
     targetClassIds: mongoose.Types.ObjectId[];
+    readBy: mongoose.Types.ObjectId[];
     createdAt: Date;
 }
 
@@ -14,9 +17,12 @@ const AnnouncementSchema: Schema = new Schema({
     title: { type: String, required: true },
     content: { type: String, required: true },
     link: { type: String },
+    severity: { type: String, enum: ['info', 'warning', 'urgent'], default: 'info' },
+    targetAudience: { type: String, enum: ['students', 'teachers', 'both'], default: 'students' },
     authorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
     targetClassIds: [{ type: Schema.Types.ObjectId, ref: 'Class' }],
+    readBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     createdAt: { type: Date, default: Date.now }
 });
 

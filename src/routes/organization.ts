@@ -18,7 +18,24 @@ const checkOrganizationAccess = async (req: AuthRequest, res: Response, next: Fu
             return next();
         }
 
-        // Check if user belongs to this organization
+        // For org_admin, check if they own this organization
+        if (req.user?.role === 'org_admin') {
+            const organization = await Organization.findById(orgId);
+            if (!organization) {
+                res.status(404).json({ message: 'Organization not found' });
+                return;
+            }
+
+            // Check if the org_admin is the owner of this organization
+            if (organization.adminId.toString() === req.user.id) {
+                return next();
+            }
+
+            res.status(403).json({ message: 'Access denied to this organization' });
+            return;
+        }
+
+        // For teachers and students, check organizationId from token
         if (req.user?.organizationId !== orgId) {
             res.status(403).json({ message: 'Access denied to this organization' });
             return;
@@ -182,10 +199,39 @@ router.get('/:id/users', requireRole('admin', 'org_admin', 'teacher'), checkOrga
             .select('-password')
             .sort({ createdAt: -1 });
 
+        // Fetch classes for this organization to add class information to students
+        const classes = await Class.find({ organizationId: req.params.id });
+
+        // Add class information to users
+        const usersWithClasses = users.map(user => {
+            const userObj: any = user.toObject();
+
+            // Find classes that include this user
+            if (userObj.role === 'student') {
+                const userClasses = classes.filter(cls =>
+                    cls.studentIds.some(studentId => studentId.toString() === user._id.toString())
+                );
+                userObj.classes = userClasses.map(cls => ({
+                    _id: cls._id,
+                    name: cls.name
+                }));
+            } else if (userObj.role === 'teacher') {
+                const userClasses = classes.filter(cls =>
+                    cls.teacherIds.some(teacherId => teacherId.toString() === user._id.toString())
+                );
+                userObj.classes = userClasses.map(cls => ({
+                    _id: cls._id,
+                    name: cls.name
+                }));
+            }
+
+            return userObj;
+        });
+
         res.json({
             success: true,
-            count: users.length,
-            users
+            count: usersWithClasses.length,
+            users: usersWithClasses
         });
     } catch (error) {
         console.error('Get users error:', error);

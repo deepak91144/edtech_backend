@@ -6,8 +6,9 @@ export interface IUser extends Document {
     password: string;
     name: string;
     role: 'teacher' | 'student' | 'org_admin';
-    organizationId: mongoose.Types.ObjectId;
+    organizationId?: mongoose.Types.ObjectId;
     createdAt: Date;
+    isActive: boolean;
     comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -41,11 +42,15 @@ const userSchema = new Schema<IUser>({
     organizationId: {
         type: Schema.Types.ObjectId,
         ref: 'Organization',
-        required: [true, 'Organization ID is required']
+        required: false
     },
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    isActive: {
+        type: Boolean,
+        default: true
     }
 });
 

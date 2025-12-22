@@ -12,10 +12,11 @@ export interface IAssessment extends Document {
     title: string;
     description?: string;
     classId: mongoose.Types.ObjectId;
+    subjectId?: mongoose.Types.ObjectId;
     teacherId: mongoose.Types.ObjectId;
     questions: IQuestion[];
     status: 'draft' | 'published';
-    dueDate?: Date;
+    dueDate: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -24,6 +25,7 @@ const AssessmentSchema: Schema = new Schema({
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
     classId: { type: Schema.Types.ObjectId, ref: 'Class', required: true },
+    subjectId: { type: Schema.Types.ObjectId, ref: 'Subject' },
     teacherId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     questions: [{
         type: {
@@ -41,7 +43,7 @@ const AssessmentSchema: Schema = new Schema({
         enum: ['draft', 'published'],
         default: 'draft'
     },
-    dueDate: { type: Date }
+    dueDate: { type: Date, required: true }
 }, {
     timestamps: true
 });

@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import Class from '../models/Class';
+import Subject from '../models/Subject';
+import Organization from '../models/Organization';
 import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
 
@@ -27,6 +29,43 @@ router.get('/my-classes', requireRole('teacher', 'student'), async (req: AuthReq
     }
 });
 
+
+// Get subjects for a specific teacher (Admin/Org Admin only)
+router.get('/subjects/teacher/:teacherId', requireRole('admin', 'org_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const subjects = await Subject.find({ teacherId: req.params.teacherId })
+            .populate('classId', 'name organizationId')
+            .sort({ createdAt: -1 });
+
+        // Check organization access for org_admin
+        if (req.user?.role === 'org_admin') {
+            const authorizedSubjects = [];
+            for (const subject of subjects) {
+                if (subject.classId && typeof subject.classId === 'object' && 'organizationId' in subject.classId) {
+                    const orgId = (subject.classId as any).organizationId;
+                    const organization = await Organization.findById(orgId);
+                    if (organization && organization.adminId.toString() === req.user.id) {
+                        authorizedSubjects.push(subject);
+                    }
+                }
+            }
+            res.json({
+                success: true,
+                subjects: authorizedSubjects
+            });
+            return;
+        }
+
+        res.json({
+            success: true,
+            subjects
+        });
+    } catch (error) {
+        console.error('Get teacher subjects error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 // Get class details
 router.get('/:id', requireRole('admin', 'org_admin', 'teacher', 'student'), async (req: AuthRequest, res: Response): Promise<void> => {
     try {
@@ -42,7 +81,8 @@ router.get('/:id', requireRole('admin', 'org_admin', 'teacher', 'student'), asyn
 
         // Check access permissions
         if (req.user?.role === 'org_admin') {
-            if (classData.organizationId._id.toString() !== req.user.organizationId) {
+            const organization = await Organization.findById(classData.organizationId._id);
+            if (!organization || organization.adminId.toString() !== req.user.id) {
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
@@ -89,7 +129,8 @@ router.post('/:id/students', requireRole('admin', 'org_admin', 'teacher'), async
 
         // Check if teacher/org_admin has access
         if (req.user?.role === 'org_admin') {
-            if (classData.organizationId.toString() !== req.user.organizationId) {
+            const organization = await Organization.findById(classData.organizationId);
+            if (!organization || organization.adminId.toString() !== req.user.id) {
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
@@ -99,6 +140,34 @@ router.post('/:id/students', requireRole('admin', 'org_admin', 'teacher'), async
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
+        }
+
+        // Check if any student is already enrolled in another class in the same organization
+        const conflictingClasses = await Class.find({
+            organizationId: classData.organizationId,
+            studentIds: { $in: studentIds },
+            _id: { $ne: classData._id }
+        }).populate('studentIds', 'name');
+
+        if (conflictingClasses.length > 0) {
+            // Find which students are conflicting
+            const conflictedStudentNames: string[] = [];
+            conflictingClasses.forEach(cls => {
+                const studentsInClass = cls.studentIds as any[];
+                studentsInClass.forEach(student => {
+                    if (studentIds.includes(student._id.toString())) {
+                        conflictedStudentNames.push(`${student.name} (in ${cls.name})`);
+                    }
+                });
+            });
+
+            // Deduplicate names
+            const uniqueConflicts = Array.from(new Set(conflictedStudentNames));
+
+            res.status(400).json({
+                message: `Students are already enrolled in another class: ${uniqueConflicts.join(', ')}. A student can only be in one class per organization.`
+            });
+            return;
         }
 
         // Add students (avoiding duplicates)
@@ -137,7 +206,8 @@ router.delete('/:id/students/:studentId', requireRole('admin', 'org_admin', 'tea
 
         // Check if teacher/org_admin has access
         if (req.user?.role === 'org_admin') {
-            if (classData.organizationId.toString() !== req.user.organizationId) {
+            const organization = await Organization.findById(classData.organizationId);
+            if (!organization || organization.adminId.toString() !== req.user.id) {
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
@@ -184,7 +254,8 @@ router.post('/:id/teachers', requireRole('admin', 'org_admin'), async (req: Auth
 
         // Check if org_admin has access
         if (req.user?.role === 'org_admin') {
-            if (classData.organizationId.toString() !== req.user.organizationId) {
+            const organization = await Organization.findById(classData.organizationId);
+            if (!organization || organization.adminId.toString() !== req.user.id) {
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
@@ -226,7 +297,8 @@ router.delete('/:id/teachers/:teacherId', requireRole('admin', 'org_admin'), asy
 
         // Check if org_admin has access
         if (req.user?.role === 'org_admin') {
-            if (classData.organizationId.toString() !== req.user.organizationId) {
+            const organization = await Organization.findById(classData.organizationId);
+            if (!organization || organization.adminId.toString() !== req.user.id) {
                 res.status(403).json({ message: 'Access denied to this class' });
                 return;
             }
@@ -247,5 +319,174 @@ router.delete('/:id/teachers/:teacherId', requireRole('admin', 'org_admin'), asy
         res.status(500).json({ message: 'Server error' });
     }
 });
+
+// Get subjects for a class
+router.get('/:id/subjects', requireRole('admin', 'org_admin', 'teacher', 'student'), async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const subjects = await Subject.find({ classId: req.params.id })
+            .populate('teacherId', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            success: true,
+            subjects
+        });
+    } catch (error) {
+        console.error('Get subjects error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Create a subject
+router.post('/:id/subjects',
+    requireRole('admin', 'org_admin'),
+    async (req: AuthRequest, res: Response): Promise<void> => {
+        try {
+            const { name, description, teacherId } = req.body;
+
+            if (!name || !description) {
+                res.status(400).json({ message: 'Name and description are required' });
+                return;
+            }
+
+            const classData = await Class.findById(req.params.id);
+            if (!classData) {
+                res.status(404).json({ message: 'Class not found' });
+                return;
+            }
+
+            // Check if org_admin has access
+            if (req.user?.role === 'org_admin') {
+                const organization = await Organization.findById(classData.organizationId);
+                if (!organization || organization.adminId.toString() !== req.user.id) {
+                    res.status(403).json({ message: 'Access denied to this class' });
+                    return;
+                }
+            }
+
+            // Verify teacher if provided
+            if (teacherId) {
+                // Ensure teacher is assigned to this class
+                const isTeacher = classData.teacherIds.includes(teacherId as any);
+                if (!isTeacher) {
+                    res.status(400).json({ message: 'Selected teacher is not assigned to this class' });
+                    return;
+                }
+            }
+
+            const subject = new Subject({
+                name,
+                description,
+                classId: req.params.id,
+                teacherId: teacherId || undefined
+            });
+
+            await subject.save();
+
+            res.status(201).json({
+                success: true,
+                message: 'Subject created successfully',
+                subject
+            });
+        } catch (error) {
+            console.error('Create subject error:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+);
+
+// Delete a subject
+router.delete('/:id/subjects/:subjectId',
+    requireRole('admin', 'org_admin'),
+    async (req: AuthRequest, res: Response): Promise<void> => {
+        try {
+            const classData = await Class.findById(req.params.id);
+            if (!classData) {
+                res.status(404).json({ message: 'Class not found' });
+                return;
+            }
+
+            // Check if org_admin has access
+            if (req.user?.role === 'org_admin') {
+                const organization = await Organization.findById(classData.organizationId);
+                if (!organization || organization.adminId.toString() !== req.user.id) {
+                    res.status(403).json({ message: 'Access denied to this class' });
+                    return;
+                }
+            }
+
+            const deletedSubject = await Subject.findOneAndDelete({
+                _id: req.params.subjectId,
+                classId: req.params.id
+            });
+
+            if (!deletedSubject) {
+                res.status(404).json({ message: 'Subject not found' });
+                return;
+            }
+
+            res.json({
+                success: true,
+                message: 'Subject deleted successfully'
+            });
+        } catch (error) {
+            console.error('Delete subject error:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+);
+
+// Update a subject
+router.put('/:id/subjects/:subjectId',
+    requireRole('admin', 'org_admin'),
+    async (req: AuthRequest, res: Response): Promise<void> => {
+        try {
+            const { name, description, teacherId } = req.body;
+            const updateData: any = {};
+
+            if (name) updateData.name = name;
+            if (description) updateData.description = description;
+
+            // Handle teacher unassignment (if teacherId is explicitly null or empty string)
+            if (teacherId === null || teacherId === '') {
+                updateData.teacherId = null;
+            } else if (teacherId) {
+                // Verify teacher if provided
+                const classData = await Class.findById(req.params.id);
+                if (!classData) {
+                    res.status(404).json({ message: 'Class not found' });
+                    return;
+                }
+
+                const isTeacher = classData.teacherIds.includes(teacherId as any);
+                if (!isTeacher) {
+                    res.status(400).json({ message: 'Selected teacher is not assigned to this class' });
+                    return;
+                }
+                updateData.teacherId = teacherId;
+            }
+
+            const subject = await Subject.findOneAndUpdate(
+                { _id: req.params.subjectId, classId: req.params.id },
+                updateData,
+                { new: true }
+            ).populate('teacherId', 'name email');
+
+            if (!subject) {
+                res.status(404).json({ message: 'Subject not found' });
+                return;
+            }
+
+            res.json({
+                success: true,
+                message: 'Subject updated successfully',
+                subject
+            });
+        } catch (error) {
+            console.error('Update subject error:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+);
 
 export default router;

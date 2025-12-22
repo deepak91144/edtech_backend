@@ -1,4 +1,5 @@
 import express, { Application } from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/database';
@@ -13,6 +14,8 @@ import classRoutes from './routes/class';
 import announcementRoutes from './routes/announcement';
 import attendanceRoutes from './routes/attendance';
 import assessmentRoutes from './routes/assessment';
+import liveClassRoutes from './routes/liveClass';
+import resourceRoutes from './routes/resource';
 
 // Load environment variables
 dotenv.config();
@@ -24,6 +27,7 @@ const app: Application = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Connect to database
 connectDB();
@@ -41,6 +45,8 @@ app.use('/api/classes', authenticateToken, classRoutes);
 app.use('/api/announcements', authenticateToken, announcementRoutes);
 app.use('/api/attendance', authenticateToken, attendanceRoutes);
 app.use('/api/assessments', authenticateToken, assessmentRoutes);
+app.use('/api/live-classes', authenticateToken, liveClassRoutes);
+app.use('/api/resources', authenticateToken, resourceRoutes);
 
 // Error handling
 app.use(notFound);
