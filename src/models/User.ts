@@ -9,6 +9,12 @@ export interface IUser extends Document {
     organizationId?: mongoose.Types.ObjectId;
     createdAt: Date;
     isActive: boolean;
+    phoneNumber?: string;
+    address?: string;
+    guardianName?: string;
+    guardianPhone?: string;
+    guardianRelationship?: string;
+    salary?: number;
     comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -51,6 +57,35 @@ const userSchema = new Schema<IUser>({
     isActive: {
         type: Boolean,
         default: true
+    },
+    phoneNumber: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    address: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    guardianName: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    guardianPhone: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    guardianRelationship: {
+        type: String,
+        required: false,
+        trim: true
+    },
+    salary: {
+        type: Number,
+        default: 0
     }
 });
 

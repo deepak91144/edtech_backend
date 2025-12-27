@@ -17,6 +17,11 @@ import assessmentRoutes from './routes/assessment';
 import liveClassRoutes from './routes/liveClass';
 import resourceRoutes from './routes/resource';
 import notesRoutes from './routes/notes';
+import calendarRoutes from './routes/calendar';
+import holidayRoutes from './routes/holiday';
+import forumRoutes from './routes/forum.routes';
+import payrollRoutes from './routes/payroll';
+import feeRoutes from './routes/feeRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -49,6 +54,11 @@ app.use('/api/assessments', authenticateToken, assessmentRoutes);
 app.use('/api/live-classes', authenticateToken, liveClassRoutes);
 app.use('/api/resources', authenticateToken, resourceRoutes);
 app.use('/api/notes', authenticateToken, notesRoutes);
+app.use('/api/calendar', authenticateToken, calendarRoutes);
+app.use('/api/holidays', authenticateToken, holidayRoutes);
+app.use('/api/forums', authenticateToken, forumRoutes);
+app.use('/api', payrollRoutes);
+app.use('/api/fees', authenticateToken, feeRoutes);
 
 // Error handling
 app.use(notFound);

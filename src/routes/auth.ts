@@ -310,7 +310,7 @@ router.put('/profile', authenticateToken, async (req: AuthRequest, res: Response
 // Get user details (admin/org_admin only)
 router.get('/users/:id', authenticateToken, requireRole('admin', 'org_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-        const user = await User.findById(req.params.id).select('-password');
+        const user = await User.findById(req.params.id).select('-password').populate('organizationId', 'name');
         if (!user) {
             res.status(404).json({ message: 'User not found' });
             return;
@@ -345,7 +345,7 @@ router.get('/users/:id', authenticateToken, requireRole('admin', 'org_admin'), a
 router.put('/users/:id', authenticateToken, requireRole('admin', 'org_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         console.log('Update User Request Body:', req.body);
-        const { name, email, password, isActive } = req.body;
+        const { name, email, password, isActive, salary } = req.body;
         console.log('Extracted isActive:', isActive, 'Type:', typeof isActive);
 
         let user = await User.findById(req.params.id);
@@ -377,6 +377,9 @@ router.put('/users/:id', authenticateToken, requireRole('admin', 'org_admin'), a
         if (email) user.email = email;
         if (password && password.trim().length > 0) {
             user.password = password; // Will be hashed by pre-save hook
+        }
+        if (salary !== undefined && user.role === 'teacher') {
+            user.salary = salary;
         }
 
         // Handle isActive specifically

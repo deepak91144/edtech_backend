@@ -143,7 +143,7 @@ router.get('/:id/join', requireRole('teacher', 'student'), async (req: AuthReque
 
         res.json({
             success: true,
-            token
+            token: token.token
         });
     } catch (error) {
         console.error('Get join token error:', error);
@@ -173,7 +173,8 @@ router.post('/join-by-link', requireRole('teacher', 'student'), async (req: Auth
         }
 
         // Determine role
-        const role = req.user!.role === 'teacher' ? 'host' : 'guest';
+        // Use roles available in the template: broadcaster, co-broadcaster, viewer-realtime
+        const role = req.user!.role === 'teacher' ? 'broadcaster' : 'co-broadcaster';
         const userId = req.user!.id;
 
         const token = await hms.auth.getAuthToken({
@@ -184,7 +185,7 @@ router.post('/join-by-link', requireRole('teacher', 'student'), async (req: Auth
 
         res.json({
             success: true,
-            token,
+            token: token.token,
             liveClass
         });
     } catch (error) {

@@ -7,6 +7,51 @@ import { requireRole } from '../middleware/roleCheck';
 
 const router = Router();
 
+// Get all classes (with optional organizationId filter)
+router.get('/', requireRole('admin', 'org_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { organizationId } = req.query;
+        const query: any = {};
+
+        if (organizationId) {
+            query.organizationId = organizationId;
+        }
+
+        // If org_admin, force filtering by their organization
+        if (req.user?.role === 'org_admin') {
+            // We should verify they are requesting their own org or just override it.
+            // For simplicity, let's look up the org they belong to if possible, 
+            // but relying on query param with a check is arguably okay if we validate ownership.
+            // Better: find orgs owned by this admin.
+            const organizations = await Organization.find({ adminId: req.user.id });
+            const orgIds = organizations.map(o => o._id);
+
+            if (organizationId) {
+                if (!orgIds.some(id => id.toString() === organizationId.toString())) {
+                    res.status(403).json({ message: 'Access denied to this organization' });
+                    return;
+                }
+                query.organizationId = organizationId;
+            } else {
+                query.organizationId = { $in: orgIds };
+            }
+        }
+
+        const classes = await Class.find(query)
+            .populate('organizationId', 'name type')
+            .populate('teacherIds', 'name email')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            success: true,
+            classes
+        });
+    } catch (error) {
+        console.error('Get classes error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 // Get current user's classes
 router.get('/my-classes', requireRole('teacher', 'student'), async (req: AuthRequest, res: Response): Promise<void> => {
     try {

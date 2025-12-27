@@ -1,12 +1,49 @@
 import { Router, Response } from 'express';
+import mongoose from 'mongoose';
 import { body, validationResult } from 'express-validator';
 import Organization from '../models/Organization';
 import User from '../models/User';
 import Class from '../models/Class';
 import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
+import { authorize } from '../middleware/auth';
 
 const router = Router();
+
+// Get organizations managed by the current user (admin/org_admin)
+router.get('/managed', authorize(['admin', 'org_admin']), async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.id;
+        const role = req.user?.role;
+
+        let query: any = {};
+
+        if (role === 'org_admin') {
+            query = { adminId: userId };
+        }
+        // Admin sees all? Or we can just return all for now if needed, 
+        // but typically 'managed' implies ownership. 
+        // If system admin, maybe they want to see all to help manage.
+        // For now, let's stick to returning what they "own" or are admin of.
+        // If role is 'admin' (superuser), maybe return all.
+        if (role === 'admin') {
+            query = {};
+        }
+
+        const organizations = await Organization.find(query)
+            .select('name _id type')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            count: organizations.length,
+            organizations
+        });
+    } catch (error) {
+        console.error('Get managed organizations error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 
 // Middleware to check if user belongs to the organization
 const checkOrganizationAccess = async (req: AuthRequest, res: Response, next: Function) => {
@@ -239,6 +276,40 @@ router.get('/:id/users', requireRole('admin', 'org_admin', 'teacher'), checkOrga
     }
 });
 
+// Get all teachers in an organization (Dedicated endpoint for simpler frontend consumption)
+router.get('/:id/teachers', requireRole('admin', 'org_admin'), checkOrganizationAccess, async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const teachers = await User.find({
+            organizationId: req.params.id,
+            role: 'teacher'
+        })
+            .select('-password')
+            .sort({ name: 1 });
+
+        const teachersWithPayment = await Promise.all(teachers.map(async (teacher) => {
+            const lastPayment = await mongoose.model('Payroll').findOne({
+                teacherId: teacher._id,
+                organizationId: req.params.id,
+                status: 'Paid'
+            }).sort({ paymentDate: -1 });
+
+            return {
+                ...teacher.toObject(),
+                lastPaymentDate: lastPayment ? lastPayment.paymentDate : null
+            };
+        }));
+
+        res.json({
+            success: true,
+            count: teachersWithPayment.length,
+            teachers: teachersWithPayment
+        });
+    } catch (error) {
+        console.error('Get teachers error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 // Add a user (teacher or student) to organization
 router.post('/:id/users',
     requireRole('admin', 'org_admin'),
@@ -257,7 +328,7 @@ router.post('/:id/users',
                 return;
             }
 
-            const { email, password, name, role } = req.body;
+            const { email, password, name, role, phoneNumber, address, guardianName, guardianPhone, guardianRelationship, salary } = req.body;
 
             // Verify organization exists
             const organization = await Organization.findById(req.params.id);
@@ -278,7 +349,13 @@ router.post('/:id/users',
                 password,
                 name,
                 role,
-                organizationId: req.params.id
+                organizationId: req.params.id,
+                phoneNumber,
+                address,
+                guardianName,
+                guardianPhone,
+                guardianRelationship,
+                salary: role === 'teacher' ? salary : undefined
             });
 
             await user.save();
@@ -315,12 +392,17 @@ router.put('/:id/users/:userId',
                 return;
             }
 
-            const { email, name, role, password } = req.body;
+            const { email, name, role, password, phoneNumber, address, guardianName, guardianPhone, guardianRelationship } = req.body;
             const updateData: any = {};
 
             if (email) updateData.email = email;
             if (name) updateData.name = name;
             if (role) updateData.role = role;
+            if (phoneNumber) updateData.phoneNumber = phoneNumber;
+            if (address) updateData.address = address;
+            if (guardianName) updateData.guardianName = guardianName;
+            if (guardianPhone) updateData.guardianPhone = guardianPhone;
+            if (guardianRelationship) updateData.guardianRelationship = guardianRelationship;
             if (password) {
                 // Password will be hashed by the pre-save hook
                 const user = await User.findOne({ _id: req.params.userId, organizationId: req.params.id });
