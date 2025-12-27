@@ -160,7 +160,7 @@ router.post('/join-by-link', requireRole('teacher', 'student'), async (req: Auth
             return;
         }
 
-        const liveClass = await LiveClass.findOne({ liveLink: liveLink, isActive: true });
+        const liveClass = await LiveClass.findOne({ liveLink: liveLink, isActive: true }).populate('classId', 'name');
 
         if (!liveClass) {
             res.status(404).json({ message: 'Live class not found or inactive' });
