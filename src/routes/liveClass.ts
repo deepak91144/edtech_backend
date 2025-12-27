@@ -151,6 +151,75 @@ router.get('/:id/join', requireRole('teacher', 'student'), async (req: AuthReque
     }
 });
 
+// Get recordings for a live class
+router.get('/:id/recordings', requireRole('teacher', 'admin', 'org_admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const liveClass = await LiveClass.findById(req.params.id);
+        if (!liveClass) {
+            res.status(404).json({ message: 'Live class not found' });
+            return;
+        }
+
+        if (!liveClass.hmsRoomId) {
+            res.status(400).json({ message: 'Video room not configured for this class' });
+            return;
+        }
+
+        // Log details to help user find recordings in dashboard
+        console.log(`Fetching recording assets for Room ID: ${liveClass.hmsRoomId}`);
+
+        // Fetch recording assets directly from 100ms (more reliable for actual file links)
+        const assetList = await hms.recordingAssets.list({ room_id: liveClass.hmsRoomId });
+
+        const allRecordings = [];
+        for await (const asset of assetList) {
+            const a = asset as any;
+
+            // If it's a composite recording, it's our main video
+            if (a.type === 'room-composite') {
+                try {
+                    // Check if asset is ready and has a path (to avoid "RemotePath is missing" error)
+                    if (a.status === 'completed' && (a.location || a.path)) {
+                        const preSigned = await hms.recordingAssets.generatePreSignedURL(a.id, 86400);
+
+                        allRecordings.push({
+                            id: a.id,
+                            session_id: a.session_id,
+                            created_at: a.created_at,
+                            status: 'completed',
+                            duration: a.duration || 0,
+                            recording_assets: [{ ...a, location: preSigned.url }],
+                            location: preSigned.url
+                        });
+                    } else {
+                        // Mark as processing/pending
+                        allRecordings.push({
+                            id: a.id,
+                            session_id: a.session_id,
+                            created_at: a.created_at,
+                            status: a.status || 'processing',
+                            duration: a.duration || 0,
+                            recording_assets: [a],
+                            location: null
+                        });
+                    }
+                } catch (urlError) {
+                    console.warn(`Failed to get pre-signed URL for asset ${a.id}:`, urlError);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            recordings: allRecordings
+        });
+    } catch (error) {
+        console.error('Get recordings error:', error);
+        // Don't fail hard if 100ms errors, just return empty list or specific error
+        res.status(500).json({ message: 'Failed to fetch recordings', error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+});
+
 // Join by live link (for frontend URL access)
 router.post('/join-by-link', requireRole('teacher', 'student'), async (req: AuthRequest, res: Response): Promise<void> => {
     try {
