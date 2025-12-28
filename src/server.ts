@@ -67,9 +67,51 @@ app.use(errorHandler);
 // Start server
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
     console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Socket.io Setup
+import { Server } from 'socket.io';
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Adjust for production
+        methods: ["GET", "POST"]
+    }
+});
+
+const whiteboardStates = new Map<string, boolean>();
+
+io.on('connection', (socket) => {
+    socket.on('join-whiteboard', (roomId) => {
+        socket.join(roomId);
+        // Send current visibility state to the user who just joined
+        socket.emit('whiteboard-visibility', whiteboardStates.get(roomId) || false);
+    });
+
+    socket.on('toggle-whiteboard', ({ roomId, isOpen }) => {
+        whiteboardStates.set(roomId, isOpen);
+        io.to(roomId).emit('whiteboard-visibility', isOpen);
+    });
+
+    socket.on('whiteboard-update', ({ roomId, elements }) => {
+        socket.to(roomId).emit('whiteboard-update', elements);
+    });
+
+    socket.on('cursor-move', ({ roomId, cursor }) => {
+        socket.to(roomId).emit('cursor-move', {
+            userId: socket.id,
+            ...cursor
+        });
+    });
+
+    socket.on('whiteboard-clear', (roomId) => {
+        io.to(roomId).emit('whiteboard-clear');
+    });
+
+    socket.on('disconnect', () => {
+    });
 });
 
 export default app;
