@@ -82,12 +82,14 @@ const io = new Server(server, {
 });
 
 const whiteboardStates = new Map<string, boolean>();
+const whiteboardElements = new Map<string, any[]>();
 
 io.on('connection', (socket) => {
     socket.on('join-whiteboard', (roomId) => {
         socket.join(roomId);
-        // Send current visibility state to the user who just joined
+        // Send current visibility state and elements to the user who just joined
         socket.emit('whiteboard-visibility', whiteboardStates.get(roomId) || false);
+        socket.emit('whiteboard-init', whiteboardElements.get(roomId) || []);
     });
 
     socket.on('toggle-whiteboard', ({ roomId, isOpen }) => {
@@ -96,6 +98,20 @@ io.on('connection', (socket) => {
     });
 
     socket.on('whiteboard-update', ({ roomId, elements }) => {
+        // 'elements' is now expected to be an object representing an operation: { type: 'add'|'delete', element: ... }
+        if (!whiteboardElements.has(roomId)) {
+            whiteboardElements.set(roomId, []);
+        }
+
+        const roomElements = whiteboardElements.get(roomId)!;
+
+        if (elements.type === 'add') {
+            roomElements.push(elements.element);
+        } else if (elements.type === 'delete') {
+            const index = roomElements.findIndex(el => el.id === elements.elementId);
+            if (index !== -1) roomElements.splice(index, 1);
+        }
+
         socket.to(roomId).emit('whiteboard-update', elements);
     });
 
@@ -107,6 +123,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('whiteboard-clear', (roomId) => {
+        whiteboardElements.set(roomId, []);
         io.to(roomId).emit('whiteboard-clear');
     });
 
