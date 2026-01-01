@@ -7,6 +7,7 @@ import Class from '../models/Class';
 import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
 import { authorize } from '../middleware/auth';
+import { sendEmail } from '../utils/mail';
 
 const router = Router();
 
@@ -359,6 +360,42 @@ router.post('/:id/users',
             });
 
             await user.save();
+
+            // Send welcome email to the newly added user
+            const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`;
+
+            sendEmail({
+                to: user.email,
+                subject: `Welcome to ${organization.name}`,
+                text: `Hello ${user.name},\n\nYou have been added as a ${role} to ${organization.name}.\n\nYour login credentials are:\nEmail: ${user.email}\nPassword: ${password}\n\nLogin URL: ${loginUrl}\n\nPlease login and change your password as soon as possible.`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2>Welcome to ${organization.name}!</h2>
+                        <p>Hello <strong>${user.name}</strong>,</p>
+                        <p>You have been added as a <strong>${role}</strong> to <strong>${organization.name}</strong>.</p>
+                        
+                        <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                            <h3 style="margin-top: 0;">Your Login Credentials</h3>
+                            <p style="margin: 10px 0;"><strong>Email:</strong> ${user.email}</p>
+                            <p style="margin: 10px 0;"><strong>Password:</strong> ${password}</p>
+                        </div>
+                        
+                        <div style="margin: 30px 0;">
+                            <a href="${loginUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                                Login to Your Account
+                            </a>
+                        </div>
+                        
+                        <p>Or copy and paste this link into your browser:</p>
+                        <p style="color: #666; word-break: break-all;">${loginUrl}</p>
+                        
+                        <p style="color: #999; font-size: 14px; margin-top: 30px;">
+                            <strong>Important:</strong> Please login and change your password as soon as possible for security.
+                        </p>
+                    </div>
+                `
+            }).catch(err => console.error('Failed to send welcome email to added user:', err));
+
 
             const userResponse: any = user.toObject();
             delete userResponse.password;

@@ -15,6 +15,8 @@ export interface IUser extends Document {
     guardianPhone?: string;
     guardianRelationship?: string;
     salary?: number;
+    resetPasswordToken?: string;
+    resetPasswordExpires?: Date;
     comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -86,6 +88,14 @@ const userSchema = new Schema<IUser>({
     salary: {
         type: Number,
         default: 0
+    },
+    resetPasswordToken: {
+        type: String,
+        required: false
+    },
+    resetPasswordExpires: {
+        type: Date,
+        required: false
     }
 });
 

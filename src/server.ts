@@ -2,6 +2,10 @@ import express, { Application } from 'express';
 import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
+
+// Load environment variables immediately
+dotenv.config();
+
 import connectDB from './config/database';
 import { errorHandler, notFound } from './middleware/errorHandler';
 import { authenticateToken } from './middleware/auth';
@@ -22,9 +26,6 @@ import holidayRoutes from './routes/holiday';
 import forumRoutes from './routes/forum.routes';
 import payrollRoutes from './routes/payroll';
 import feeRoutes from './routes/feeRoutes';
-
-// Load environment variables
-dotenv.config();
 
 // Initialize express app
 const app: Application = express();

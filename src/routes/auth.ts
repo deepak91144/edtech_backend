@@ -6,6 +6,8 @@ import Organization from '../models/Organization';
 import { generateToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
+import { sendEmail } from '../utils/mail';
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -67,6 +69,14 @@ router.post('/login',
             const token = generateToken(payload);
             const refreshToken = generateRefreshToken(payload);
 
+            // Send login notification email (asynchronous, don't await if failure shouldn't block login)
+            sendEmail({
+                to: user.email,
+                subject: 'Login Notification',
+                text: `Hello ${user.name}, you have just logged in to your account. If this wasn't you, please contact support.`,
+                html: `<p>Hello <strong>${user.name}</strong>,</p><p>You have just logged in to your account. If this wasn't you, please contact support.</p>`
+            }).catch(err => console.error('Failed to send login email:', err));
+
             res.json({
                 success: true,
                 token,
@@ -123,6 +133,14 @@ router.post('/register',
                 const token = generateToken(tokenPayload);
                 const refreshToken = generateRefreshToken(tokenPayload);
 
+                // Send welcome email
+                sendEmail({
+                    to: admin.email,
+                    subject: 'Welcome to EdTech Platform',
+                    text: `Hello ${admin.name}, welcome to EdTech Platform as an Admin!`,
+                    html: `<p>Hello <strong>${admin.name}</strong>,</p><p>Welcome to EdTech Platform as an Admin!</p>`
+                }).catch(err => console.error('Failed to send welcome email:', err));
+
                 res.status(201).json({
                     success: true,
                     message: 'Admin registered successfully',
@@ -166,6 +184,14 @@ router.post('/register',
 
                 const token = generateToken(tokenPayload);
                 const refreshToken = generateRefreshToken(tokenPayload);
+
+                // Send welcome email
+                sendEmail({
+                    to: user.email,
+                    subject: 'Welcome to EdTech Platform',
+                    text: `Hello ${user.name}, welcome to EdTech Platform! Your role is ${userType}.`,
+                    html: `<p>Hello <strong>${user.name}</strong>,</p><p>Welcome to EdTech Platform!</p><p>Your role is <strong>${userType}</strong>.</p>`
+                }).catch(err => console.error('Failed to send welcome email:', err));
 
                 res.status(201).json({
                     success: true,
@@ -253,6 +279,11 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response): Pr
                 name: user.name,
                 role: req.user.role,
                 organizationName,
+                phoneNumber: user.phoneNumber,
+                address: user.address,
+                guardianName: user.guardianName,
+                guardianPhone: user.guardianPhone,
+                guardianRelationship: user.guardianRelationship,
                 ...(req.user.role !== 'admin' && { organization: user.organizationId })
             }
         });
@@ -270,7 +301,7 @@ router.put('/profile', authenticateToken, async (req: AuthRequest, res: Response
             return;
         }
 
-        const { name, password } = req.body;
+        const { name, password, phoneNumber, address, guardianName, guardianPhone, guardianRelationship } = req.body;
         let user: any;
 
         if (req.user.role === 'admin') {
@@ -284,9 +315,19 @@ router.put('/profile', authenticateToken, async (req: AuthRequest, res: Response
             return;
         }
 
+        // Update basic fields
         if (name) user.name = name;
         if (password && password.trim().length > 0) {
             user.password = password; // Will be hashed by pre-save hook
+        }
+
+        // Update student-specific fields (only for non-admin users)
+        if (req.user.role !== 'admin') {
+            if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+            if (address !== undefined) user.address = address;
+            if (guardianName !== undefined) user.guardianName = guardianName;
+            if (guardianPhone !== undefined) user.guardianPhone = guardianPhone;
+            if (guardianRelationship !== undefined) user.guardianRelationship = guardianRelationship;
         }
 
         await user.save();
@@ -298,7 +339,12 @@ router.put('/profile', authenticateToken, async (req: AuthRequest, res: Response
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: req.user.role
+                role: req.user.role,
+                phoneNumber: user.phoneNumber,
+                address: user.address,
+                guardianName: user.guardianName,
+                guardianPhone: user.guardianPhone,
+                guardianRelationship: user.guardianRelationship,
             }
         });
     } catch (error) {
@@ -406,6 +452,220 @@ router.put('/users/:id', authenticateToken, requireRole('admin', 'org_admin'), a
 
     } catch (error) {
         console.error('Update user error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Change password endpoint (requires current password)
+router.put('/change-password', authenticateToken, async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        if (!req.user) {
+            res.status(401).json({ message: 'Not authenticated' });
+            return;
+        }
+
+        const { currentPassword, newPassword } = req.body;
+
+        // Validate input
+        if (!currentPassword || !newPassword) {
+            res.status(400).json({ message: 'Current password and new password are required' });
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            res.status(400).json({ message: 'New password must be at least 6 characters long' });
+            return;
+        }
+
+        // Get user with password
+        let user: any;
+        if (req.user.role === 'admin') {
+            user = await Admin.findById(req.user.id);
+        } else {
+            user = await User.findById(req.user.id);
+        }
+
+        if (!user) {
+            res.status(404).json({ message: 'User not found' });
+            return;
+        }
+
+        // Verify current password
+        const isPasswordValid = await user.comparePassword(currentPassword);
+        if (!isPasswordValid) {
+            res.status(401).json({ message: 'Current password is incorrect' });
+            return;
+        }
+
+        // Update password
+        user.password = newPassword; // Will be hashed by pre-save hook
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Forgot password - Request password reset
+router.post('/forgot-password', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            res.status(400).json({ message: 'Email is required' });
+            return;
+        }
+
+        // Try to find user in both User and Admin collections
+        let user: any = await User.findOne({ email });
+        let isAdmin = false;
+
+        if (!user) {
+            user = await Admin.findOne({ email });
+            isAdmin = true;
+        }
+
+        // Always return success for security (don't reveal if email exists)
+        if (!user) {
+            res.json({
+                success: true,
+                message: 'If an account with that email exists, a password reset link has been sent.'
+            });
+            return;
+        }
+
+        // Generate reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+
+        // Hash token before saving to database
+        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+        // Token expires in 1 hour
+        const expires = new Date(Date.now() + 60 * 60 * 1000);
+
+        // Save hashed token to user
+        user.resetPasswordToken = hashedToken;
+        user.resetPasswordExpires = expires;
+        await user.save();
+        // Create reset URL (use frontend URL from environment or default)
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+
+        // Send reset email
+        console.log(`[DEBUG] Sending password reset email to: ${user.email} (role: ${user.role || 'admin'})`);
+        try {
+            await sendEmail({
+                to: user.email,
+                subject: 'Password Reset Request',
+                text: `You requested a password reset. Click the link below to reset your password:\n\n${resetUrl}\n\nThis link will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2>Password Reset Request</h2>
+                        <p>You requested a password reset for your account.</p>
+                        <p>Click the button below to reset your password:</p>
+                        <div style="margin: 30px 0;">
+                            <a href="${resetUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Reset Password</a>
+                        </div>
+                        <p>Or copy and paste this link into your browser:</p>
+                        <p style="color: #666; word-break: break-all;">${resetUrl}</p>
+                        <p style="color: #999; font-size: 14px; margin-top: 30px;">
+                            <strong>This link will expire in 1 hour.</strong><br/>
+                            If you didn't request this password reset, please ignore this email.
+                        </p>
+                    </div>
+                `
+            });
+            console.log(`[DEBUG] Password reset email sent successfully to: ${user.email}`);
+        } catch (emailError) {
+            console.error(`[ERROR] Failed to send password reset email to ${user.email}:`, emailError);
+            // Don't throw error to avoid revealing if email exists
+        }
+
+        res.json({
+            success: true,
+            message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Reset password with token
+router.post('/reset-password', async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const { token, newPassword } = req.body;
+
+        if (!token || !newPassword) {
+            res.status(400).json({ message: 'Token and new password are required' });
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            res.status(400).json({ message: 'Password must be at least 6 characters long' });
+            return;
+        }
+
+        // Hash the token from URL to compare with database
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        // Try to find user with valid token in User collection
+        let user: any = await User.findOne({
+            resetPasswordToken: hashedToken,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        let isAdmin = false;
+
+        // If not found in User, try Admin collection
+        if (!user) {
+            user = await Admin.findOne({
+                resetPasswordToken: hashedToken,
+                resetPasswordExpires: { $gt: Date.now() }
+            });
+            isAdmin = true;
+        }
+
+        if (!user) {
+            res.status(400).json({ message: 'Invalid or expired reset token' });
+            return;
+        }
+
+        // Update password
+        user.password = newPassword; // Will be hashed by pre-save hook
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        // Send confirmation email
+        await sendEmail({
+            to: user.email,
+            subject: 'Password Reset Successful',
+            text: `Your password has been successfully reset. You can now log in with your new password.`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2>Password Reset Successful</h2>
+                    <p>Your password has been successfully changed.</p>
+                    <p>You can now log in with your new password.</p>
+                    <p style="color: #999; font-size: 14px; margin-top: 30px;">
+                        If you didn't make this change, please contact support immediately.
+                    </p>
+                </div>
+            `
+        }).catch(err => console.error('Failed to send password reset confirmation email:', err));
+
+        res.json({
+            success: true,
+            message: 'Password has been reset successfully. You can now log in with your new password.'
+        });
+
+    } catch (error) {
+        console.error('Reset password error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
