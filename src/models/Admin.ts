@@ -5,6 +5,7 @@ export interface IAdmin extends Document {
     email: string;
     password: string;
     name: string;
+    organizationId?: mongoose.Types.ObjectId;
     createdAt: Date;
     resetPasswordToken?: string;
     resetPasswordExpires?: Date;
@@ -29,6 +30,11 @@ const adminSchema = new Schema<IAdmin>({
         type: String,
         required: [true, 'Name is required'],
         trim: true
+    },
+    organizationId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Organization',
+        required: false
     },
     createdAt: {
         type: Date,

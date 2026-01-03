@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface ISubject extends Document {
     name: string;
     description: string;
-    classId: mongoose.Types.ObjectId;
+    classId?: mongoose.Types.ObjectId;
     teacherId?: mongoose.Types.ObjectId;
     createdAt: Date;
 }
@@ -21,7 +21,7 @@ const subjectSchema = new Schema<ISubject>({
     classId: {
         type: Schema.Types.ObjectId,
         ref: 'Class',
-        required: [true, 'Class ID is required']
+        required: false
     },
     teacherId: {
         type: Schema.Types.ObjectId,
