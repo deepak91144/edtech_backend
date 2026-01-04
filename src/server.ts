@@ -30,6 +30,13 @@ import feeRoutes from './routes/feeRoutes';
 // Initialize express app
 const app: Application = express();
 
+// Ensure uploads directory exists
+import fs from 'fs';
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());

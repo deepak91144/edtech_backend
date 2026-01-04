@@ -4,6 +4,7 @@ import Subject from '../models/Subject';
 import Organization from '../models/Organization';
 import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
+import { checkStudentConflicts } from '../utils/validation';
 
 const router = Router();
 
@@ -187,31 +188,10 @@ router.post('/:id/students', requireRole('admin', 'org_admin', 'teacher'), async
             }
         }
 
-        // Check if any student is already enrolled in another class in the same organization
-        const conflictingClasses = await Class.find({
-            organizationId: classData.organizationId,
-            studentIds: { $in: studentIds },
-            _id: { $ne: classData._id }
-        }).populate('studentIds', 'name');
-
-        if (conflictingClasses.length > 0) {
-            // Find which students are conflicting
-            const conflictedStudentNames: string[] = [];
-            conflictingClasses.forEach(cls => {
-                const studentsInClass = cls.studentIds as any[];
-                studentsInClass.forEach(student => {
-                    if (studentIds.includes(student._id.toString())) {
-                        conflictedStudentNames.push(`${student.name} (in ${cls.name})`);
-                    }
-                });
-            });
-
-            // Deduplicate names
-            const uniqueConflicts = Array.from(new Set(conflictedStudentNames));
-
-            res.status(400).json({
-                message: `Students are already enrolled in another class: ${uniqueConflicts.join(', ')}. A student can only be in one class per organization.`
-            });
+        // Check if any student is already enrolled in another class across the platform
+        const conflictError = await checkStudentConflicts(studentIds, classData._id.toString());
+        if (conflictError) {
+            res.status(400).json({ message: conflictError });
             return;
         }
 

@@ -8,6 +8,7 @@ import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
 import { authorize } from '../middleware/auth';
 import { sendEmail } from '../utils/mail';
+import { checkStudentConflicts } from '../utils/validation';
 
 const router = Router();
 
@@ -128,6 +129,15 @@ router.post('/:id/classes',
                 return;
             }
 
+            // Check for student conflicts
+            if (studentIds && Array.isArray(studentIds)) {
+                const conflictError = await checkStudentConflicts(studentIds);
+                if (conflictError) {
+                    res.status(400).json({ message: conflictError });
+                    return;
+                }
+            }
+
             const newClass = new Class({
                 name,
                 organizationId: req.params.id,
@@ -173,7 +183,14 @@ router.put('/:id/classes/:classId',
 
             if (name) updateData.name = name;
             if (teacherIds) updateData.teacherIds = teacherIds;
-            if (studentIds) updateData.studentIds = studentIds;
+            if (studentIds) {
+                const conflictError = await checkStudentConflicts(studentIds, req.params.classId);
+                if (conflictError) {
+                    res.status(400).json({ message: conflictError });
+                    return;
+                }
+                updateData.studentIds = studentIds;
+            }
 
             const updatedClass = await Class.findOneAndUpdate(
                 { _id: req.params.classId, organizationId: req.params.id },

@@ -60,8 +60,14 @@ export const createResource = async (req: Request, res: Response) => {
         const { title, type, url, classId } = req.body;
         // @ts-ignore
         const userId = req.user.id;
-        // @ts-ignore
-        const organizationId = req.user.organizationId;
+
+        // Fetch class to get the correct organizationId
+        const Class = require('../models/Class').default;
+        const targetClass = await Class.findById(classId);
+        if (!targetClass) {
+            return res.status(404).json({ message: 'Class not found' });
+        }
+        const organizationId = targetClass.organizationId;
 
         const createdResources = [];
 
