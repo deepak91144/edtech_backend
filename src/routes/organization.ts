@@ -8,6 +8,8 @@ import { AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
 import { authorize } from '../middleware/auth';
 import { sendEmail } from '../utils/mail';
+import { sendWhatsAppMessage } from '../utils/whatsapp';
+import { sendSMS } from '../utils/sms';
 import { checkStudentConflicts } from '../utils/validation';
 
 const router = Router();
@@ -412,6 +414,19 @@ router.post('/:id/users',
                     </div>
                 `
             }).catch(err => console.error('Failed to send welcome email to added user:', err));
+
+            // Send WhatsApp and SMS Welcome Message (Admin added user)
+            if (phoneNumber) {
+                const message = `Welcome ${name}! You have been added to ${organization.name} as a ${role}. Your login email is ${email}.`;
+
+                // Send WhatsApp
+                sendWhatsAppMessage(phoneNumber, message)
+                    .catch(err => console.error('Failed to send WhatsApp welcome (Admin Add):', err));
+
+                // Send SMS
+                sendSMS(phoneNumber, message)
+                    .catch(err => console.error('Failed to send SMS welcome (Admin Add):', err));
+            }
 
 
             const userResponse: any = user.toObject();

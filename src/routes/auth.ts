@@ -7,6 +7,8 @@ import { generateToken, generateRefreshToken, verifyRefreshToken } from '../util
 import { AuthRequest, authenticateToken } from '../middleware/auth';
 import { requireRole } from '../middleware/roleCheck';
 import { sendEmail } from '../utils/mail';
+import { sendWhatsAppMessage } from '../utils/whatsapp';
+import { sendSMS } from '../utils/sms';
 import crypto from 'crypto';
 
 const router = Router();
@@ -112,7 +114,7 @@ router.post('/register',
                 return;
             }
 
-            const { email, password, name, userType, organizationId } = req.body;
+            const { email, password, name, userType, organizationId, phoneNumber } = req.body;
 
             // Check if user already exists
             if (userType === 'admin') {
@@ -172,6 +174,7 @@ router.post('/register',
                     password,
                     name,
                     role: userType,
+                    phoneNumber,
                     ...(organizationId && { organizationId })
                 });
                 await user.save();
@@ -192,6 +195,18 @@ router.post('/register',
                     text: `Hello ${user.name}, welcome to EdTech Platform! Your role is ${userType}.`,
                     html: `<p>Hello <strong>${user.name}</strong>,</p><p>Welcome to EdTech Platform!</p><p>Your role is <strong>${userType}</strong>.</p>`
                 }).catch(err => console.error('Failed to send welcome email:', err));
+
+                // Send WhatsApp and SMS Welcome Message
+                if (phoneNumber) {
+                    const message = `Welcome ${name}! You have been added to the EdTech Platform as a ${userType}. Your login email is ${email}.`;
+
+                    sendWhatsAppMessage(phoneNumber, message)
+                        .catch(err => console.error('Failed to send WhatsApp welcome:', err));
+
+                    sendSMS(phoneNumber, message)
+                        .catch(err => console.error('Failed to send SMS welcome:', err));
+                }
+
 
                 res.status(201).json({
                     success: true,
