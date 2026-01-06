@@ -6,6 +6,7 @@ export interface IHoliday extends Document {
     date: Date;
     description?: string;
     organizationId: mongoose.Types.ObjectId;
+    academicYear?: string;
     createdAt: Date;
 }
 
@@ -14,6 +15,7 @@ const HolidaySchema: Schema = new Schema({
     date: { type: Date, required: true },
     description: { type: String, trim: true },
     organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+    academicYear: { type: String, required: false }, // Format: "YYYY-YYYY" e.g. "2024-2025"
     createdAt: { type: Date, default: Date.now }
 });
 

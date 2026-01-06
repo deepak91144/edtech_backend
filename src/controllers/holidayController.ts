@@ -8,12 +8,19 @@ import Organization from '../models/Organization';
 export const getHolidays = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         const adminId = req.user?.id;
+        const { academicYear } = req.query;
 
         // Find all organizations managed by this admin
         const organizations = await Organization.find({ adminId }).select('_id');
         const orgIds = organizations.map(org => org._id);
 
-        const holidays = await Holiday.find({ organizationId: { $in: orgIds } })
+        const query: any = { organizationId: { $in: orgIds } };
+
+        if (academicYear) {
+            query.academicYear = academicYear;
+        }
+
+        const holidays = await Holiday.find(query)
             .populate('organizationId', 'name')
             .sort({ date: 1 });
 
@@ -30,7 +37,7 @@ export const getHolidays = async (req: AuthRequest, res: Response): Promise<void
 // Create a new holiday
 export const createHoliday = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-        const { title, date, description, organizationId } = req.body;
+        const { title, date, description, organizationId, academicYear } = req.body;
         const adminId = req.user?.id;
 
         // Verify the user manages this organization
@@ -50,7 +57,8 @@ export const createHoliday = async (req: AuthRequest, res: Response): Promise<vo
             title,
             date,
             description,
-            organizationId: organization._id
+            organizationId: organization._id,
+            academicYear
         });
 
         await holiday.save();
