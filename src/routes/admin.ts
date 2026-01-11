@@ -13,6 +13,12 @@ const router = Router();
 // All routes require admin or org_admin authentication
 router.use(requireRole('admin', 'org_admin'));
 
+router.get('/me', async (req: AuthRequest, res: Response): Promise<void> => {
+    res.status(200).json({
+        message:"hurray"
+        });
+});
+
 // Get all organizations
 router.get('/organizations', async (req: AuthRequest, res: Response): Promise<void> => {
     try {
